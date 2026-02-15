@@ -4,44 +4,84 @@ on:
   push:
     tags:
       - "v*"
+  repository_dispatch:
+    types: [publish-release]
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
-  create-release:
-    name: Create Release
+  publish-release:
+    name: Publish Release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Download latest VSIX from private repo
-        # This step requires a PAT with access to the private repo
-        # Set PRIVATE_REPO_PAT in repository secrets
-        if: ${{ false }}  # Disabled until PAT is configured
+      - name: Determine version tag
+        id: version
         run: |
-          gh release download --repo IB-QA/mcp-grid-ws --pattern "*.vsix" --dir ./artifacts
-          gh release download --repo IB-QA/mcp-grid-ws --pattern "*.whl" --dir ./artifacts
-          gh release download --repo IB-QA/mcp-grid-ws --pattern "*.tar.gz" --dir ./artifacts
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            TAG="${{ github.event.client_payload.tag }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Publishing version: $TAG"
+
+      - name: Download artifacts from private repo release
+        run: |
+          mkdir -p artifacts
+          TAG="${{ steps.version.outputs.tag }}"
+          echo "Downloading release artifacts for $TAG..."
+          gh release download "$TAG" \
+            --repo IB-QA/McpServerStudio \
+            --pattern "*.vsix" \
+            --dir ./artifacts 2>/dev/null || echo "No VSIX found"
+          gh release download "$TAG" \
+            --repo IB-QA/McpServerStudio \
+            --pattern "*.whl" \
+            --dir ./artifacts 2>/dev/null || echo "No wheel found"
+          gh release download "$TAG" \
+            --repo IB-QA/McpServerStudio \
+            --pattern "*.tar.gz" \
+            --dir ./artifacts 2>/dev/null || echo "No sdist found"
+          echo "=== Downloaded artifacts ==="
+          ls -la artifacts/
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
 
-      - name: Prepare artifacts directory
-        run: mkdir -p artifacts
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Publish to VS Code Marketplace
+        run: |
+          VSIX_FILE=$(ls artifacts/*.vsix 2>/dev/null | head -1)
+          if [ -n "$VSIX_FILE" ]; then
+            echo "Publishing $VSIX_FILE to VS Code Marketplace..."
+            npx @vscode/vsce publish --packagePath "$VSIX_FILE"
+          else
+            echo "No VSIX file found, skipping marketplace publish"
+          fi
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
           files: |
             artifacts/*
           fail_on_unmatched_files: false
           generate_release_notes: true
           draft: false
-          prerelease: ${{ contains(github.ref, 'rc') || contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
+          prerelease: ${{ contains(steps.version.outputs.tag, 'rc') || contains(steps.version.outputs.tag, 'beta') || contains(steps.version.outputs.tag, 'alpha') }}
           body: |
-            ## MCP Grid ${{ github.ref_name }}
+            ## MCP Grid ${{ steps.version.outputs.tag }}
 
             ### Install
 
@@ -51,12 +91,9 @@ jobs:
             ```
 
             **VS Code Extension:**
-            Download `mcp-grid.vsix` below and run:
+            Search "MCP Grid" in VS Code Extensions, or:
             ```bash
-            code --install-extension mcp-grid.vsix
+            code --install-extension IBQA.mcp-grid
             ```
 
             **Marketplace:** [grid.mcpstudio.qabots.diy](https://grid.mcpstudio.qabots.diy)
-
-            ---
-            See [CHANGELOG](https://github.com/IB-QA/mcp-marketplace-grid-studio/wiki/Changelog) for details.
