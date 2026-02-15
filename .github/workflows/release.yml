@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download latest VSIX from private repo
+        # This step requires a PAT with access to the private repo
+        # Set PRIVATE_REPO_PAT in repository secrets
+        if: ${{ false }}  # Disabled until PAT is configured
+        run: |
+          gh release download --repo IB-QA/mcp-grid-ws --pattern "*.vsix" --dir ./artifacts
+          gh release download --repo IB-QA/mcp-grid-ws --pattern "*.whl" --dir ./artifacts
+          gh release download --repo IB-QA/mcp-grid-ws --pattern "*.tar.gz" --dir ./artifacts
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+
+      - name: Prepare artifacts directory
+        run: mkdir -p artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, 'rc') || contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
+          body: |
+            ## MCP Grid ${{ github.ref_name }}
+
+            ### Install
+
+            **Python package:**
+            ```bash
+            pip install mcp-grid
+            ```
+
+            **VS Code Extension:**
+            Download `mcp-grid.vsix` below and run:
+            ```bash
+            code --install-extension mcp-grid.vsix
+            ```
+
+            **Marketplace:** [grid.mcpstudio.qabots.diy](https://grid.mcpstudio.qabots.diy)
+
+            ---
+            See [CHANGELOG](https://github.com/IB-QA/mcp-marketplace-grid-studio/wiki/Changelog) for details.

@@ -1,0 +1,63 @@
+name: Deploy Marketplace Site
+
+# This workflow is triggered ONLY by the private codebase repository
+# via a repository_dispatch event. It receives pre-built artifacts
+# and deploys them to GitHub Pages. No source code, catalog data,
+# or build scripts exist in this repository.
+
+on:
+  repository_dispatch:
+    types: [deploy-marketplace]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Reason for deployment"
+        required: false
+        default: "Manual deployment trigger"
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  deploy:
+    name: Deploy to gh-pages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Receive artifacts from dispatch payload
+        if: github.event_name == 'repository_dispatch'
+        run: |
+          mkdir -p _site/api/v1
+          # The dispatch event carries the download URL for artifacts
+          # built in the private repo. The URL is passed via client_payload.
+          ARTIFACT_URL="${{ github.event.client_payload.artifact_url }}"
+          if [ -n "$ARTIFACT_URL" ]; then
+            echo "Downloading artifacts from private build..."
+            curl -sL -H "Authorization: token ${{ secrets.PRIVATE_REPO_PAT }}" \
+              "$ARTIFACT_URL" -o artifacts.tar.gz
+            tar -xzf artifacts.tar.gz -C _site/
+            rm artifacts.tar.gz
+            echo "Artifacts deployed."
+          else
+            echo "No artifact URL in payload -- using fallback."
+          fi
+
+      - name: Ensure CNAME
+        run: echo "grid.mcpstudio.qabots.diy" > _site/CNAME
+
+      - name: Verify deployment content
+        run: |
+          echo "=== Deployment contents ==="
+          ls -la _site/ 2>/dev/null || echo "No _site directory"
+          ls -la _site/api/v1/ 2>/dev/null || echo "No API directory"
+
+      - name: Deploy to gh-pages
+        if: hashFiles('_site/index.html') != '' || hashFiles('_site/api/v1/catalog.json') != ''
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          publish_branch: mcp-grid-marketplace-pages
+          cname: grid.mcpstudio.qabots.diy

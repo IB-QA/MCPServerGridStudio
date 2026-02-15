@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-docs:
+    name: Validate Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check README exists
+        run: |
+          if [ -f README.md ]; then
+            echo "README.md found ($(wc -l < README.md) lines)"
+          else
+            echo "ERROR: README.md is missing" && exit 1
+          fi
+
+      - name: Check LICENSE exists
+        run: |
+          if [ -f LICENSE ]; then
+            echo "LICENSE found"
+          else
+            echo "WARNING: No LICENSE file"
+          fi
+
+  validate-site:
+    name: Validate Deployed Site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check gh-pages branch exists
+        id: check-branch
+        run: |
+          if git ls-remote --exit-code --heads origin mcp-grid-marketplace-pages >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "INFO: gh-pages branch does not exist yet. It will be created on first deploy from the private repo."
+          fi
+
+      - name: Checkout gh-pages branch
+        if: steps.check-branch.outputs.exists == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: mcp-grid-marketplace-pages
+
+      - name: Check CNAME
+        if: steps.check-branch.outputs.exists == 'true'
+        run: |
+          if [ -f CNAME ]; then
+            echo "CNAME: $(cat CNAME)"
+          else
+            echo "WARNING: No CNAME file found"
+          fi
+
+      - name: Check index.html exists
+        if: steps.check-branch.outputs.exists == 'true'
+        run: |
+          if [ -f index.html ]; then
+            echo "index.html found"
+          else
+            echo "WARNING: No index.html - site content is deployed from the codebase pipeline"
+          fi
+
+      - name: Skip (branch pending)
+        if: steps.check-branch.outputs.exists == 'false'
+        run: echo "Skipping -- gh-pages branch will be created by the codebase deploy pipeline."
