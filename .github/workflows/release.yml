@@ -68,7 +68,29 @@ jobs:
             echo "No VSIX file found, skipping marketplace publish"
           fi
         env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          VSCE_PAT: ${{ secrets.VSCE_PUB }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install twine
+        run: pip install twine
+
+      - name: Publish to PyPI
+        run: |
+          WHL_FILE=$(ls artifacts/*.whl 2>/dev/null | head -1)
+          SDIST_FILE=$(ls artifacts/*.tar.gz 2>/dev/null | head -1)
+          if [ -n "$WHL_FILE" ] || [ -n "$SDIST_FILE" ]; then
+            echo "Publishing Python package to PyPI..."
+            twine upload artifacts/*.whl artifacts/*.tar.gz 2>/dev/null || echo "PyPI upload completed (may have skipped existing versions)"
+          else
+            echo "No Python artifacts found, skipping PyPI publish"
+          fi
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PY_PKG }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
